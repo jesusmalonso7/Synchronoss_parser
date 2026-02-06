@@ -1,14 +1,11 @@
-
 from datetime import datetime, timezone
 from secrets import token_urlsafe
-from bs4 import BeautifulSoup
 from typing import List
 import pathlib
 import logging
 import json
 import sys
 import os
-import re
 
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # Python 3.7+
 # Setup logger
@@ -19,17 +16,43 @@ logging.basicConfig(
 )
 
 
+def parse_cmd_line(argv: list) -> str:
+    # Command line variable processing
+    if len(argv) < 2:
+        print("Usage: python synchronoss_parser.py [info|run]", file=sys.stderr)
+        sys.exit(2)
+    cmd = argv[1]
+    if cmd == 'info':
+        show_info()
+        sys.exit(0)
+    if cmd == 'run':
+        if len(argv) < 3:
+            print("Please provide the path to the (extracted) Synchronoss return folder: "
+                  "synchronoss_parser.py run <folder path>", file=sys.stderr)
+            sys.exit(2)
+        dir_path = sys.argv[2]
+        if not dir_path:
+            logging.error('Folder path not provided.')
+            sys.exit(1)
+        else:
+            return dir_path
+    else:
+        print("Unknown command. Use 'info' or 'run'.", file=sys.stderr)
+        logging.info("Unknown command. Use 'info' or 'run'.")
+        sys.exit(2)
+
+
 def show_info():
     print(json.dumps({
-        "name": "Yahoo Parser",
-        "description": "Processes Yahoo documents, extracts messages, IPs, locations, and gives a summary.",
+        "name": "Synchronoss Parser",
+        "description": "Processes Synchronoss text files for sms/mms text messages and provide a summary.",
         "author": "Pathfinder Labs",
-        "created": "2026-02-01",
+        "created": "2026-02-05",
         "version": "1.0.0",
         "dataType": "data",
         "usage": "python script.py run <directory>\npython script.py info",
-        "notes": "Handles html and csv files",
-        "fileTypes": ["html, csv"]
+        "notes": "Handles TXT files",
+        "fileTypes": ["txt"]
     }))
 
 
@@ -73,13 +96,42 @@ def to_iso_utc(ts: str) -> str:
     raise ValueError(f"Unrecognized date format: {ts}")
 
 
-def get_subscriber_data(html_file, meta: dict, activities: list, uniquePeople: set, uniqueUsers: set, uniqueIPs: set):
-    soup = BeautifulSoup(open(html_file), 'html.parser')
-    for ul in soup.find_all('ul'):
-        if ul:
-            li = ul.find_all('li')
-            for item in li:
-                print(f'{item}')
+def get_messages(root_path, meta: dict, activities: list):
+    """
+    :param root_path: The sms/in and sms/out path passed from the main function.
+    :param meta:
+    :param activities:
+    :return:
+    """
+
+    # os.walk() starts traversing directories from sms/in or sms/out passed in from the main function.
+    for root_folder, subfolders, filenames in os.walk(os.path.normpath(root_path), topdown=True):
+        for filename in filenames:
+            # Many of the text files are empty. Skip those
+            if filename.endswith('.txt') and os.path.getsize(root_folder) > 0:
+                with open(os.path.join(root_folder, filename), 'r', encoding='utf-8') as fd:
+                    msg = fd.read()
+                # Send this batch off for processing in main.
+                # activities.append({
+                #     "type": "data",
+                #     "dirId": meta["dirId"],
+                #     "platform": "Synchronoss",
+                #     "date": pathlib.Path(root_folder).name,  # The text files are stored in folders named after the date
+                #     "caseId": None,                          # the file was received or sent. e.g. 2024-01-16
+                #     "event": 'sms message'
+                # })
+                yield {
+                    "platform": "Synchronoss",
+                    "dirId": meta["dirId"],
+                    "dateRun": meta["dateRun"],
+                    "messageId": token_urlsafe(16),
+                    "msgFrom": "Received" if pathlib.Path(root_folder).parent.name == 'in' else "Sent",
+                    "messageType": "sms",
+                    "msgBody": msg,
+                    "fileId": None,
+                    "msgDate": pathlib.Path(root_folder).name,  # same as above
+                    "epoch": None
+                }
 
 
 # Command Line Interface (CLI)
@@ -102,60 +154,42 @@ def main(argv: List[str]) -> int:
     }
 
     # Command line variable processing
-    if len(argv) < 2:
-        print("Usage: python yahoo_parser.py [info|run]", file=sys.stderr)
-        return 2
-    cmd = argv[1]
-    if cmd == 'info':
-        show_info()
-        return 0
-    if cmd == 'run':
-        if len(argv) < 3:
-            print("Please provide the path to the (extracted) Yahoo return folder: "
-                  "yahoo_parser.py run <folder path>", file=sys.stderr)
-            return 2
-        dir_path = sys.argv[2]
-        if not dir_path:
-            logging.error('Folder path not provided.')
-            sys.exit(1)
-        else:
-            # Process all the files and folders found in dir_path
-            for root_folder, subfolders, filenames in os.walk(os.path.normpath(dir_path), topdown=True):
-                # Process all the files inside the root_folder and all subfolders
-                for filename in filenames:
-                    # filename sanity check before passing it along. If an exception is thrown during this test
-                    # skip the file and move on.
-                    try:
-                        path = pathlib.Path(filename)
-                        path.resolve()
-                    except Exception as e:
-                        logging.error(f"filename `{filename}` is not valid: {e}")
-                        continue
-                    # Get the full filepath for the file currently being processed.
-                    file_path = os.path.join(root_folder, filename)
-                    if '-subscriber_details-' in file_path:
-                        get_subscriber_data(file_path, meta, activities, uniquePeople, uniqueUsers, uniqueIPs)
+    if dir_path := parse_cmd_line(argv):
+        exclude_dir = ['call', 'VZMOBILE', 'mms']
+        count = 0
+        # Process all the files and folders found in dir_path
+        for root_folder, subfolders, filenames in os.walk(os.path.normpath(dir_path), topdown=True):
+            # Exclude directories from the subfolders list to skip traversal. These directories do not contain any data
+            # of value but do contain numerous subdirectories that would be traversed for no useful reason.
+            subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
-            # Print final Summary
-            print(json.dumps({"type": "plugin_summary", "data": {
-                "company": "Google",
-                "dirId": integrityId,
-                "uniquePeople": list(uniquePeople),
-                "uniquePeopleCount": len(uniquePeople),
-                "uniqueLocations": list(uniqueLocations),
-                "uniqueLocationCount": len(uniqueLocations),
-                "uniqueUsers": list(uniqueUsers),
-                "uniqueUserCount": len(uniqueUsers),
-                "uniqueIPs": list(uniqueIPs),
-                "uniqueIPCount": len(uniqueIPs),
-                "activities": activities,
-                "activityCount": len(activities),
-            }}, ensure_ascii=False), flush=True)
-            return 0
-    else:
-        print("Unknown command. Use 'info' or 'run'.", file=sys.stderr)
-        logging.info("Unknown command. Use 'info' or 'run'.")
-        return 2
+            if 'sms' in root_folder:
+                if 'in' in root_folder:
+                    for record in get_messages(root_folder, meta, activities):
+                        print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
+                                         ensure_ascii=False), flush=True)
+                elif 'out' in root_folder:
+                    for record in get_messages(root_folder, meta, activities):
+                        print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
+                                         ensure_ascii=False), flush=True)
+
+            # if 'mms' in root_folder:
+            #     if 'in' in root_folder:
+            #         for record in get_messages(root_folder, meta, activities):
+            #             print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
+            #                              ensure_ascii=False), flush=True)
+            #     elif 'out' in root_folder:
+            #         for record in get_messages(root_folder, meta, activities):
+            #             print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
+            #                              ensure_ascii=False), flush=True)
+        # Print final Summary
+        print(json.dumps({"type": "plugin_summary", "data": {
+            "company": "Synchronoss",
+            "dirId": integrityId,
+            "activities": activities,
+            "activityCount": len(activities),
+        }}, ensure_ascii=False), flush=True)
+    return 0
 
 
 if __name__ == '__main__':
