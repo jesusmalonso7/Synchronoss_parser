@@ -96,6 +96,23 @@ def to_iso_utc(ts: str) -> str:
     raise ValueError(f"Unrecognized date format: {ts}")
 
 
+def files_need_processing(root_path: str) -> bool:
+    """
+    :param root_path:
+    :return: number of files processed that are not empty
+    :Description: Small utility tool to quickly assess if there are any text files in a folder that have information.
+                  Used to preemptively ignore folders with large quantities of empty text files.
+    """
+
+    # os.walk() starts traversing directories from sms/in or sms/out passed in from the main function.
+    for root_folder, subfolders, filenames in os.walk(os.path.normpath(root_path), topdown=True):
+        for filename in filenames:
+            # Many of the text files are empty. Skip those
+            if filename.endswith('.txt') and os.path.getsize(f'{root_folder}\\{filename}') > 0:
+                return True
+    return False
+
+
 def get_messages(root_path, meta: dict, activities: list):
     """
     :param root_path: The sms/in and sms/out path passed from the main function.
@@ -103,23 +120,22 @@ def get_messages(root_path, meta: dict, activities: list):
     :param activities:
     :return:
     """
-
     # os.walk() starts traversing directories from sms/in or sms/out passed in from the main function.
     for root_folder, subfolders, filenames in os.walk(os.path.normpath(root_path), topdown=True):
         for filename in filenames:
             # Many of the text files are empty. Skip those
-            if filename.endswith('.txt') and os.path.getsize(root_folder) > 0:
+            if filename.endswith('.txt') and os.path.getsize(f'{root_folder}\\{filename}') > 0:
                 with open(os.path.join(root_folder, filename), 'r', encoding='utf-8') as fd:
                     msg = fd.read()
                 # Send this batch off for processing in main.
-                # activities.append({
-                #     "type": "data",
-                #     "dirId": meta["dirId"],
-                #     "platform": "Synchronoss",
-                #     "date": pathlib.Path(root_folder).name,  # The text files are stored in folders named after the date
-                #     "caseId": None,                          # the file was received or sent. e.g. 2024-01-16
-                #     "event": 'sms message'
-                # })
+                activities.append({
+                    "type": "data",
+                    "dirId": meta["dirId"],
+                    "platform": "Synchronoss",
+                    "date": pathlib.Path(root_folder).name,  # The text files are stored in folders named after the date
+                    "caseId": None,                          # the file was received or sent. e.g. 2024-01-16
+                    "event": 'sms message'
+                })
                 yield {
                     "platform": "Synchronoss",
                     "dirId": meta["dirId"],
@@ -142,11 +158,6 @@ def main(argv: List[str]) -> int:
     """
     # Variables to store data collected during processing..
     activities = []
-    uniquePeople = set()
-    uniqueUsers = set()
-    uniqueIPs = set()
-    uniqueLocations = set()
-    uniqueDevices = []
     integrityId = token_urlsafe(16)
     meta = {
         "dirId": integrityId,
@@ -155,8 +166,7 @@ def main(argv: List[str]) -> int:
 
     # Command line variable processing
     if dir_path := parse_cmd_line(argv):
-        exclude_dir = ['call', 'VZMOBILE', 'mms']
-        count = 0
+        exclude_dir = ['call', 'VZMOBILE',]
         # Process all the files and folders found in dir_path
         for root_folder, subfolders, filenames in os.walk(os.path.normpath(dir_path), topdown=True):
             # Exclude directories from the subfolders list to skip traversal. These directories do not contain any data
@@ -164,24 +174,24 @@ def main(argv: List[str]) -> int:
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
             if 'sms' in root_folder:
-                if 'in' in root_folder:
+                if 'in' == pathlib.Path(root_folder).name and files_need_processing(root_folder):
                     for record in get_messages(root_folder, meta, activities):
                         print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
                                          ensure_ascii=False), flush=True)
-                elif 'out' in root_folder:
+                elif 'out' == pathlib.Path(root_folder).name and files_need_processing(root_folder):
                     for record in get_messages(root_folder, meta, activities):
                         print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
                                          ensure_ascii=False), flush=True)
 
-            # if 'mms' in root_folder:
-            #     if 'in' in root_folder:
-            #         for record in get_messages(root_folder, meta, activities):
-            #             print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
-            #                              ensure_ascii=False), flush=True)
-            #     elif 'out' in root_folder:
-            #         for record in get_messages(root_folder, meta, activities):
-            #             print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
-            #                              ensure_ascii=False), flush=True)
+            if 'mms' in root_folder:
+                if 'in' == pathlib.Path(root_folder).name and files_need_processing(root_folder):
+                    for record in get_messages(root_folder, meta, activities):
+                        print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
+                                         ensure_ascii=False), flush=True)
+                elif 'out' == pathlib.Path(root_folder).name and files_need_processing(root_folder):
+                    for record in get_messages(root_folder, meta, activities):
+                        print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
+                                         ensure_ascii=False), flush=True)
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
@@ -194,4 +204,3 @@ def main(argv: List[str]) -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main(sys.argv))
-
