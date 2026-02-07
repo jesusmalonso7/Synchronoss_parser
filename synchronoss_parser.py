@@ -108,7 +108,7 @@ def files_need_processing(root_path: str) -> bool:
     for root_folder, subfolders, filenames in os.walk(os.path.normpath(root_path), topdown=True):
         for filename in filenames:
             # Many of the text files are empty. Skip those
-            if filename.endswith('.txt') and os.path.getsize(f'{root_folder}\\{filename}') > 0:
+            if filename.endswith('.txt') and os.path.getsize(f'{os.path.join(root_folder, filename)}') > 0:
                 return True
     return False
 
@@ -124,7 +124,7 @@ def get_messages(root_path, meta: dict, activities: list):
     for root_folder, subfolders, filenames in os.walk(os.path.normpath(root_path), topdown=True):
         for filename in filenames:
             # Many of the text files are empty. Skip those
-            if filename.endswith('.txt') and os.path.getsize(f'{root_folder}\\{filename}') > 0:
+            if filename.endswith('.txt') and os.path.getsize(f'{os.path.join(root_folder, filename)}') > 0:
                 with open(os.path.join(root_folder, filename), 'r', encoding='utf-8') as fd:
                     msg = fd.read()
                 # Send this batch off for processing in main.
@@ -183,7 +183,7 @@ def main(argv: List[str]) -> int:
                         print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
                                          ensure_ascii=False), flush=True)
 
-            if 'mms' in root_folder:
+            elif 'mms' in root_folder:
                 if 'in' == pathlib.Path(root_folder).name and files_need_processing(root_folder):
                     for record in get_messages(root_folder, meta, activities):
                         print(json.dumps({"type": "message", "data": record, "dirId": integrityId},
