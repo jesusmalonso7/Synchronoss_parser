@@ -137,9 +137,10 @@ def render_message(dir_path, message, integrityId):
     }
 
 
-def get_messages(root_path, summary, integrityId, activities):
+def get_messages(root_path, meta, summary, integrityId, activities):
     """
     :param root_path: The sms/in and sms/out path passed from the main function.
+    :param meta: The meta data passed from the main function.
     :param summary:
     :param integrityId: The integrity id passed from the main function.:
     :param activities:
@@ -158,14 +159,13 @@ def get_messages(root_path, summary, integrityId, activities):
         if filename.endswith('.txt') and os.path.getsize(f'{os.path.join(root_path, filename)}') > 0:
             with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
                 msg = fd.read()
-                print(json.dumps({"type": "message", "data": render_message(root_path, msg, integrityId)}, ensure_ascii=False), flush=True)
-
+                print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), integrityId)}, ensure_ascii=False), flush=True)
                 # Create activity
                 activities.append({
                     "type": "data",
-                    "date": pathlib.Path(root_path).name,
-                    "dirId": integrityId,
+                    "dirId": meta,
                     "platform": "synchronoss",
+                    "date": pathlib.Path(root_path).name,
                     "caseId": None,
                     "event": 'sms' if 'sms' in pathlib.Path(root_path).parent.parent.name else 'mms',
                 })
@@ -193,7 +193,6 @@ def render_message(dir_path, message, integrityId):
         "dirId": integrityId,
         "messageId": token_urlsafe(16),
         "msgFrom": 'sent' if 'out' in dir_path else 'received',
-        #"msgFrom": row.get('sender_username'),
         "messageType": 'sms' if 'sms' in dir_path else 'mms',
         "msgBody": message,
         "msgDate": pathlib.Path(dir_path).name,
@@ -210,6 +209,10 @@ def main(argv: List[str]) -> int:
     activities = []
     integrityId = token_urlsafe(16)
     summary = []
+    meta = {
+        "dirId": integrityId,
+        "dateRun": datetime.now(timezone.utc).isoformat()
+    }
 
     # Command line variable processing
     if dir_path := parse_cmd_line(argv):
@@ -221,14 +224,14 @@ def main(argv: List[str]) -> int:
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
             if 'sms' in root_folder or 'mms' in root_folder:
-                if 'in' == pathlib.Path(root_folder).parent.name:
-                    if 'in' == pathlib.Path(root_folder).parent.name:
-                        if files_need_processing(root_folder):
-                            get_messages(root_folder, summary, integrityId, activities)
+                # if 'in' == pathlib.Path(root_folder).parent.name:
+                #     if 'in' == pathlib.Path(root_folder).parent.name:
+                #         if files_need_processing(root_folder):
+                #             get_messages(root_folder, meta, summary, integrityId, activities)
                 if 'out' == pathlib.Path(root_folder).parent.name:
                         if 'out' == pathlib.Path(root_folder).parent.name:
                             if files_need_processing(root_folder):
-                                get_messages(root_folder, summary, integrityId, activities)
+                                get_messages(root_folder, meta, summary, integrityId, activities)
 
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
