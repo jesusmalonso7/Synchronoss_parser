@@ -130,7 +130,7 @@ def render_message(dir_path, message, integrityId):
         },
         "dirId": integrityId,
         "messageId": token_urlsafe(16),
-        "messageType": "message",
+        "messageType": 'sms' if 'sms' in dir_path else 'mms',
         "msgBody": message,
         "msgDate": pathlib.Path(dir_path).name,
 
@@ -159,7 +159,9 @@ def get_messages(root_path, meta, summary, integrityId, activities):
         if filename.endswith('.txt') and os.path.getsize(f'{os.path.join(root_path, filename)}') > 0:
             with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
                 msg = fd.read()
-                print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), integrityId)}, ensure_ascii=False), flush=True)
+                print(json.dumps({"type": 'sms' if 'sms' in pathlib.Path(root_path).parent.parent.name else 'mms',
+                                  "data": render_message(root_path, msg.replace("\n", " "), integrityId)},
+                                  ensure_ascii=False), flush=True)
                 # Create activity
                 activities.append({
                     "type": "data",
