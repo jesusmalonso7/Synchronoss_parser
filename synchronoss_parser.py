@@ -6,6 +6,7 @@ import pathlib
 import logging
 import time
 import json
+import glob
 import sys
 import os
 import re
@@ -111,29 +112,28 @@ def get_messages(root_path, meta: dict, summary: list, activities: list):
     counts = Counter()
     start = time.time()
 
-    filenames = os.listdir(root_path)
-    count = 0
+    filenames = glob.glob(f'{root_path}/**/*.txt', recursive=True)
     for filename in filenames:
+        if os.path.getsize(filename) == 0:
+            continue
         # Count how many times 'mms' or 'sms' messages appear
         counts[pathlib.Path(root_path).parent.name] += 1
 
-        if filename.endswith('.txt'):
-            with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
-                msg = fd.read()
-                # count += 1
-                # print(f'{count}: {msg.replace("\n", ' ')}: {root_path}')
-                print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), meta)},
-                                  ensure_ascii=False), flush=True)
-                # Create activity
-                activities.append({
-                    "type": "data",
-                    "dirId": meta['dirId'],
-                    "platform": "synchronoss",
-                    "date": pathlib.Path(root_path).name,  # The text files are stored in folders that are named after
-                    "caseId": None,                        # the date the text files was added
-                    "event": "message",
-                })
-                time.sleep(0.005)
+        #if filename.endswith('.txt'):
+        with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
+            msg = fd.read()
+            print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), meta)},
+                              ensure_ascii=False), flush=True)
+            # Create activity
+            activities.append({
+                "type": "data",
+                "dirId": meta['dirId'],
+                "platform": "synchronoss",
+                "date": pathlib.Path(root_path).name,  # The text files are stored in folders that are named after
+                "caseId": None,                        # the date the text files was added
+                "event": "message",
+            })
+            #time.sleep(0.005)
 
     duration = time.time() - start
 
@@ -178,14 +178,10 @@ def main(argv: List[str]) -> int:
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
             if 'sms' in root_folder or 'mms' in root_folder:
-                if 'in' == pathlib.Path(root_folder).parent.name:
-                    if 'in' == pathlib.Path(root_folder).parent.name:
-                        if files_need_processing(root_folder):
-                            get_messages(root_folder, meta, summary, activities)
+                if 'in' == pathlib.Path(root_folder).name:
+                    get_messages(root_folder, meta, summary, activities)
                 if 'out' == pathlib.Path(root_folder).parent.name:
-                        if 'out' == pathlib.Path(root_folder).parent.name:
-                            if files_need_processing(root_folder):
-                                get_messages(root_folder, meta, summary, activities)
+                    get_messages(root_folder, meta, summary, activities)
 
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
