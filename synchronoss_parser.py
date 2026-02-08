@@ -8,6 +8,7 @@ import time
 import json
 import sys
 import os
+import re
 
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # Python 3.7+
 # Setup logger
@@ -188,6 +189,7 @@ def main(argv: List[str]) -> int:
     """
     # Variables to store data collected during processing..
     activities = []
+    uniqueUsers = set()
     integrityId = token_urlsafe(16)
     summary = []
     meta = {
@@ -197,6 +199,13 @@ def main(argv: List[str]) -> int:
 
     # Command line variable processing
     if dir_path := parse_cmd_line(argv):
+        # Synchronoss uses the subscriber 10 digit telephone number as the account number. Their returns are therefore
+        # provided in a directory/folder that uses the telephone number as its name. Assuming the user selects this
+        # folder as the folder Paradigm will process, capture the directory/folder name. If the user does not select
+        # this folder then do not capture the folder name.
+        if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
+            uniqueUsers.add(pathlib.Path(dir_path).name)
+
         exclude_dir = ['call', 'VZMOBILE',]
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
         # do not provide any intel.
@@ -218,6 +227,8 @@ def main(argv: List[str]) -> int:
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
             "dirId": meta['dirId'],
+            "uniqueUsers": list(uniqueUsers),
+            "uniqueUserCount": len(uniqueUsers),
             "activities": activities,
             "activityCount": len(activities),
         }}, ensure_ascii=False), flush=True)
