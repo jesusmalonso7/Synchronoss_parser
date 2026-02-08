@@ -224,10 +224,10 @@ def main(argv: List[str]) -> int:
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
             if 'sms' in root_folder or 'mms' in root_folder:
-                # if 'in' == pathlib.Path(root_folder).parent.name:
-                #     if 'in' == pathlib.Path(root_folder).parent.name:
-                #         if files_need_processing(root_folder):
-                #             get_messages(root_folder, meta, summary, integrityId, activities)
+                if 'in' == pathlib.Path(root_folder).parent.name:
+                    if 'in' == pathlib.Path(root_folder).parent.name:
+                        if files_need_processing(root_folder):
+                            get_messages(root_folder, meta, summary, integrityId, activities)
                 if 'out' == pathlib.Path(root_folder).parent.name:
                         if 'out' == pathlib.Path(root_folder).parent.name:
                             if files_need_processing(root_folder):
