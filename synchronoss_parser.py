@@ -114,12 +114,12 @@ def files_need_processing(root_path: str) -> bool:
     return False
 
 
-def render_message(dir_path, message, integrityId):
+def render_message(dir_path, message, meta: dict,):
     """
     Returns a paradigm formatted message
     :param dir_path:
     :param message:
-    :param integrityId:
+    :param meta: metadata passed in from the main function
     :return:
     """
     return {
@@ -128,7 +128,7 @@ def render_message(dir_path, message, integrityId):
             "messageType": 'sms' if 'sms' in dir_path else 'mms',
             "senderId": 'sent' if 'out' in dir_path else 'received',
         },
-        "dirId": integrityId,
+        "dirId": meta['dirId'],
         "messageId": token_urlsafe(16),
         "messageType": 'sms' if 'sms' in dir_path else 'mms',
         "msgBody": message,
@@ -137,12 +137,11 @@ def render_message(dir_path, message, integrityId):
     }
 
 
-def get_messages(root_path, meta, summary, integrityId, activities):
+def get_messages(root_path, meta: dict, summary: list, activities: list):
     """
     :param root_path: The sms/in and sms/out path passed from the main function.
-    :param meta: The meta data passed from the main function.
+    :param meta: The metadata passed from the main function.
     :param summary:
-    :param integrityId: The integrity id passed from the main function.:
     :param activities:
     :return:
     """
@@ -153,22 +152,21 @@ def get_messages(root_path, meta, summary, integrityId, activities):
     filenames = os.listdir(root_path)
 
     for filename in filenames:
-        # Keep track of message type count. pathlib.Path(root_path).parent.name returns either 'sms' or 'mms'
+        # Count how many times 'mms' or 'sms' messages appear
         counts[pathlib.Path(root_path).parent.name] += 1
-        # Many of the text files are empty. Skip those
-        if filename.endswith('.txt') and os.path.getsize(f'{os.path.join(root_path, filename)}') > 0:
+
+        if filename.endswith('.txt'):
             with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
                 msg = fd.read()
-                print(json.dumps({"type": 'sms' if 'sms' in pathlib.Path(root_path).parent.parent.name else 'mms',
-                                  "data": render_message(root_path, msg.replace("\n", " "), integrityId)},
+                print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), meta)},
                                   ensure_ascii=False), flush=True)
                 # Create activity
                 activities.append({
                     "type": "data",
-                    "dirId": meta,
+                    "dirId": meta['dirId'],
                     "platform": "synchronoss",
-                    "date": pathlib.Path(root_path).name,
-                    "caseId": None,
+                    "date": pathlib.Path(root_path).name,  # The text files are stored in folders that are named after
+                    "caseId": None,                        # the date the text files was added
                     "event": 'sms' if 'sms' in pathlib.Path(root_path).parent.parent.name else 'mms',
                 })
 
@@ -180,25 +178,6 @@ def get_messages(root_path, meta, summary, integrityId, activities):
         "messages": sum(counts.values()),
         "breakdown": dict(counts)
     })
-
-
-def render_message(dir_path, message, integrityId):
-    """
-    Returns a paradigm formatted message
-    :param dir_path:
-    :param message:
-    :param integrityId:
-    :return:
-    """
-    return {
-        "platform": "synchronoss",
-        "dirId": integrityId,
-        "messageId": token_urlsafe(16),
-        "msgFrom": 'sent' if 'out' in dir_path else 'received',
-        "messageType": 'sms' if 'sms' in dir_path else 'mms',
-        "msgBody": message,
-        "msgDate": pathlib.Path(dir_path).name,
-    }
 
 
 # Command Line Interface (CLI)
@@ -218,9 +197,9 @@ def main(argv: List[str]) -> int:
 
     # Command line variable processing
     if dir_path := parse_cmd_line(argv):
-        # Prevents os.walk() from processing these directories. These directories do not contain any data of value.
         exclude_dir = ['call', 'VZMOBILE',]
-        # Process all the files and folders found in dir_path
+        # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
+        # do not provide any intel.
         for root_folder, subfolders, filenames in os.walk(os.path.normpath(dir_path), topdown=True):
             # Exclude directories based on exclude_dir list above.
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
@@ -229,16 +208,16 @@ def main(argv: List[str]) -> int:
                 if 'in' == pathlib.Path(root_folder).parent.name:
                     if 'in' == pathlib.Path(root_folder).parent.name:
                         if files_need_processing(root_folder):
-                            get_messages(root_folder, meta, summary, integrityId, activities)
+                            get_messages(root_folder, meta, summary, activities)
                 if 'out' == pathlib.Path(root_folder).parent.name:
                         if 'out' == pathlib.Path(root_folder).parent.name:
                             if files_need_processing(root_folder):
-                                get_messages(root_folder, meta, summary, integrityId, activities)
+                                get_messages(root_folder, meta, summary, activities)
 
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
-            "dirId": integrityId,
+            "dirId": meta['dirId'],
             "activities": activities,
             "activityCount": len(activities),
         }}, ensure_ascii=False), flush=True)
