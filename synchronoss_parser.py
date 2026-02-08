@@ -33,45 +33,6 @@ def show_info():
     }))
 
 
-# List of datetime formats for to_iso_utc()
-# List of datetime formats for to_iso_utc()
-FORMATS_Z = [
-    "%a %b %d %H:%M:%S %Z %Y",  # Thu Apr 04 14:39:09 UTC 2024
-    "%b %d %Y %H:%M:%S %Z",     # Apr 04 2024 00:19:33 UTC
-    "%Y-%m-%d %H:%M:%S %Z",     # 2025-12-27 01:16:16 UTC
-    "%Y-%m-%d %H:%M:%S",        # 2025-12-27 01:16:16
-]
-
-FORMATS_z = [
-    "%a %b %d %H:%M:%S %z %Y",  # Thu Apr 04 14:39:09 +0000 2024
-    "%b %d %Y %H:%M:%S %z",     # Apr 04 2024 00:19:33 +0000
-    "%Y-%m-%d %H:%M:%S %z",     # 2025-12-27 01:16:16 UTC
-    "%Y-%m-%d %H:%M:%S.%f%z",   # 2025-12-27 01:16:160000+00:00
-    "%Y-%m-%d %H:%M:%S%z",      # 2025-12-27 01:16:16+00:00
-]
-
-
-def to_iso_utc(ts: str) -> str:
-    # First try with %Z (named timezone)
-    for fmt in FORMATS_Z:
-        try:
-            dt = datetime.strptime(ts, fmt)
-            return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        except ValueError:
-            pass
-
-    # Normalize " UTC " to "+0000" so %z parses reliably, then try %z formats
-    ts_fixed = ts.replace(" UTC ", " +0000 ").replace(" UTC", " +0000")
-    for fmt in FORMATS_z:
-        try:
-            dt = datetime.strptime(ts_fixed, fmt)
-            return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        except ValueError:
-            pass
-
-    raise ValueError(f"Unrecognized date format: {ts}")
-
-
 def parse_cmd_line(argv: list) -> str:
     # Command line variable processing
     if len(argv) < 2:
@@ -151,7 +112,7 @@ def get_messages(root_path, meta: dict, summary: list, activities: list):
     start = time.time()
 
     filenames = os.listdir(root_path)
-
+    count = 0
     for filename in filenames:
         # Count how many times 'mms' or 'sms' messages appear
         counts[pathlib.Path(root_path).parent.name] += 1
@@ -159,6 +120,8 @@ def get_messages(root_path, meta: dict, summary: list, activities: list):
         if filename.endswith('.txt'):
             with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
                 msg = fd.read()
+                # count += 1
+                # print(f'{count}: {msg.replace("\n", ' ')}: {root_path}')
                 print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), meta)},
                                   ensure_ascii=False), flush=True)
                 # Create activity
@@ -170,6 +133,7 @@ def get_messages(root_path, meta: dict, summary: list, activities: list):
                     "caseId": None,                        # the date the text files was added
                     "event": "message",
                 })
+                time.sleep(0.005)
 
     duration = time.time() - start
 
