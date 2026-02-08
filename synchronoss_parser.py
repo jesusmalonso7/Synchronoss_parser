@@ -130,10 +130,10 @@ def render_message(dir_path, message, meta: dict,):
         },
         "dirId": meta['dirId'],
         "messageId": token_urlsafe(16),
-        "messageType": 'sms' if 'sms' in dir_path else 'mms',
-        "msgBody": message,
         "msgDate": pathlib.Path(dir_path).name,
-
+        "msgFrom": 'sent' if 'out' in dir_path else 'received',
+        "msgBody": message,
+        "messageType": 'sms' if 'sms' in dir_path else 'mms',
     }
 
 
@@ -167,7 +167,7 @@ def get_messages(root_path, meta: dict, summary: list, activities: list):
                     "platform": "synchronoss",
                     "date": pathlib.Path(root_path).name,  # The text files are stored in folders that are named after
                     "caseId": None,                        # the date the text files was added
-                    "event": 'sms' if 'sms' in pathlib.Path(root_path).parent.parent.name else 'mms',
+                    "event": "message",
                 })
 
     duration = time.time() - start
