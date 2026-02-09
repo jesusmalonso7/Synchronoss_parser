@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from secrets import token_urlsafe
 from collections import Counter
+from itertools import batched
 from typing import List
 import pathlib
 import logging
@@ -60,23 +61,6 @@ def parse_cmd_line(argv: list) -> str:
         sys.exit(2)
 
 
-def files_need_processing(root_path: str) -> bool:
-    """
-    :param root_path:
-    :return: number of files processed that are not empty
-    :Description: Small utility tool to quickly assess if there are any text files in a folder that have information.
-                  Used to preemptively ignore folders with large quantities of empty text files.
-    """
-
-    # os.walk() starts traversing directories from sms/in or sms/out passed in from the main function.
-    for root_folder, subfolders, filenames in os.walk(os.path.normpath(root_path), topdown=True):
-        for filename in filenames:
-            # Many of the text files are empty. Skip those
-            if filename.endswith('.txt') and os.path.getsize(f'{os.path.join(root_folder, filename)}') > 0:
-                return True
-    return False
-
-
 def render_message(dir_path, message, meta: dict,):
     """
     Returns a paradigm formatted message
@@ -102,47 +86,50 @@ def render_message(dir_path, message, meta: dict,):
 
 def get_messages(root_path, meta: dict, summary: list, activities: list):
     """
-    :param root_path: The sms/in and sms/out path passed from the main function.
+    :param root_path: The sms/mms `in` and sms/mms `out` folder path passed from the main function.
     :param meta: The metadata passed from the main function.
     :param summary:
     :param activities:
     :return:
     """
 
+    # For summary.append below
     counts = Counter()
     start = time.time()
 
+    # Grabs all the files stored in the sms/mms `in` or `out` folder passed in from the main function
     filenames = glob.glob(f'{root_path}/**/*.txt', recursive=True)
-    for filename in filenames:
-        if os.path.getsize(filename) == 0:
-            continue
-        # Count how many times 'mms' or 'sms' messages appear
-        counts[pathlib.Path(root_path).parent.name] += 1
 
-        #if filename.endswith('.txt'):
-        with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
-            msg = fd.read()
-            print(json.dumps({"type": "message", "data": render_message(root_path, msg.replace("\n", " "), meta)},
-                              ensure_ascii=False), flush=True)
-            # Create activity
-            activities.append({
-                "type": "data",
-                "dirId": meta['dirId'],
-                "platform": "synchronoss",
-                "date": pathlib.Path(root_path).name,  # The text files are stored in folders that are named after
-                "caseId": None,                        # the date the text files was added
-                "event": "message",
-            })
-            #time.sleep(0.005)
+    # Process 100 hundred files before passing the data to Paradigm
+    for batch in batched(filenames, 100):
+        for filename in batch:
+            # Skip empty files
+            if os.path.getsize(filename) == 0:
+                continue
+            # Count how many 'mms' or 'sms' messages have been received or sent
+            counts[pathlib.Path(root_path).parent.name] += 1
+            with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
+                msg = fd.read()
+                print(json.dumps({"type": "message", "data":
+                    render_message(root_path, msg.replace("\n", " "), meta)}, ensure_ascii=False), flush=True)
+                # tag activity
+                activities.append({
+                    "type": "data",
+                    "dirId": meta['dirId'],
+                    "platform": "synchronoss",
+                    "date": pathlib.Path(root_path).name,  # The messages are stored in folders that are named after
+                    "caseId": None,                        # the date the messages were sent or received
+                    "event": "message",
+                })
 
-    duration = time.time() - start
+        duration = time.time() - start
 
-    summary.append({
-        "file": os.path.basename(root_path),
-        "time_taken_secs": round(duration, 2),
-        "messages": sum(counts.values()),
-        "breakdown": dict(counts)
-    })
+        summary.append({
+            "file": os.path.basename(root_path),
+            "time_taken_secs": round(duration, 2),
+            "messages": sum(counts.values()),
+            "breakdown": dict(counts)
+        })
 
 
 # Command Line Interface (CLI)
@@ -177,9 +164,15 @@ def main(argv: List[str]) -> int:
             # Exclude directories based on exclude_dir list above.
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
+            # The 'sms' and 'mms' folders each contain two folders. One named 'in' the other named 'out'. The 'in' and
+            # 'out' folders can contain multiple folders. Each of these folders is named according to the date
+            # YYYY-MM-DD messages were received or sent. Each of these dated folders can contain multiple text files
+            # inside. Each of these text files contains the message sent or received. One text file per message.
             if 'sms' in root_folder or 'mms' in root_folder:
+                # Process all the files in the sms or mms in directory.
                 if 'in' == pathlib.Path(root_folder).name:
                     get_messages(root_folder, meta, summary, activities)
+                # Process all the files in the sms or mms out directory
                 if 'out' == pathlib.Path(root_folder).parent.name:
                     get_messages(root_folder, meta, summary, activities)
 
@@ -187,6 +180,7 @@ def main(argv: List[str]) -> int:
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
             "dirId": meta['dirId'],
+            "summary": summary,
             "uniqueUsers": list(uniqueUsers),
             "uniqueUserCount": len(uniqueUsers),
             "activities": activities,
