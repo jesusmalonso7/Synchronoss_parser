@@ -1,3 +1,4 @@
+import csv
 from datetime import datetime, timezone
 from secrets import token_urlsafe
 from collections import Counter
@@ -33,6 +34,41 @@ def show_info():
         "notes": "Handles TXT files",
         "fileTypes": ["txt"]
     }))
+
+
+FORMATS_Z = [
+    "%a %b %d %H:%M:%S %Z %Y",  # Thu Apr 04 14:39:09 UTC 2024
+    "%b %d %Y %H:%M:%S %Z",     # Apr 04 2024 00:19:33 UTC
+    "%Y-%m-%d %H:%M:%S %Z",     # 2025-12-27 01:16:16 UTC
+]
+
+FORMATS_z = [
+    "%a %b %d %H:%M:%S %z %Y",  # Thu Apr 04 14:39:09 +0000 2024
+    "%b %d %Y %H:%M:%S %z",     # Apr 04 2024 00:19:33 +0000
+    "%Y-%m-%d %H:%M:%S %z",     # 2025-12-27 01:16:16 UTC
+    "%Y-%m-%dT%H:%M:%S.%f%z",     # 2025-12-27T01:16:16.000Z
+]
+
+
+def to_iso_utc(ts: str) -> str:
+    # First try with %Z (named timezone)
+    for fmt in FORMATS_Z:
+        try:
+            dt = datetime.strptime(ts, fmt)
+            return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        except ValueError:
+            pass
+
+    # Normalize " UTC " to "+0000" so %z parses reliably, then try %z formats
+    ts_fixed = ts.replace(" UTC ", " +0000 ").replace(" UTC", " +0000")
+    for fmt in FORMATS_z:
+        try:
+            dt = datetime.strptime(ts_fixed, fmt)
+            return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        except ValueError:
+            pass
+
+    raise ValueError(f"Unrecognized date format: {ts}")
 
 
 def parse_cmd_line(argv: list) -> str:
@@ -81,6 +117,32 @@ def render_message(dir_path, message, meta: dict,):
         "msgFrom": 'sent' if 'out' in dir_path else 'received',
         "msgBody": message,
         "messageType": 'sms' if 'sms' in dir_path else 'mms',
+    }
+
+def render_message_csv(row, meta: dict,):
+    """
+    Returns a paradigm formatted message
+    :param row: current row being processed in file
+    :param meta: metadata passed in from the main function
+    :return:
+    """
+    return {
+        "platform": "synchronoss",
+        "platformValues": {
+            "messageType": row['Type'],
+            "senderId": row['Sender'],
+            "recipientId": row['Recipients'],
+            "messageId": row['Message ID'],
+            "attachments": row['Attachments'],
+            "direction": row['Direction'],
+        },
+        "dirId": meta['dirId'],
+        "messageId": token_urlsafe(16),
+        "msgDate": to_iso_utc(row['Date']),
+        "msgFrom": row['Sender'],
+        "msgTo": row['Recipients'],
+        "msgBody": row['Body'],
+        "messageType": row['Type'],
     }
 
 
@@ -132,6 +194,60 @@ def get_messages_text_docs(root_path, meta: dict, summary: list, activities: lis
         })
 
 
+def get_messages_csv_docs(root_path, meta: dict, summary: list, activities: list, uniqueUsers: set):
+    """
+        :param root_path: The messages folder path passed from the main function.
+        :param meta: The metadata passed from the main function.
+        :param summary:
+        :param activities:
+        :param uniqueUsers:
+        """
+
+    # For summary.append below
+    counts = Counter()
+    start = time.time()
+
+    # Grabs all the files stored in the sms/mms `in` or `out` folder passed in from the main function
+    filenames = glob.glob(f'{root_path}/**/*.csv', recursive=True)
+
+    # Process 100 hundred files before passing the data to Paradigm
+    for batch in batched(filenames, 50):
+        for filename in batch:
+            with open(filename, 'r', encoding='utf-8') as fd:
+                dict_reader = csv.DictReader(fd)
+                for row in dict_reader:
+                    counts[row['Type']] += 1
+                    print(json.dumps({"type": "message", "data": render_message_csv(row, meta)},
+                                     ensure_ascii=False), flush=True)
+                    # tag activity
+                    activities.append({
+                        "type": "data",
+                        "dirId": meta['dirId'],
+                        "platform": "synchronoss",
+                        "date": to_iso_utc(row["Date"]),
+                        "caseId": None,  # the date the messages were sent or received
+                        "event": "message",
+                    })
+
+                    # row['Sender'] and row['Recipients'] are each telephone numbers with different formats. Some use
+                    # +, or use +1, or have just a 10-digit number. Capture just the 10-digit number in either of the
+                    # cases.
+                    if sender := re.findall(r'\+?1?(\d{10})', row['Sender']):
+                        uniqueUsers.add(sender[0])
+                    elif recipient := re.findall(r'\+?1?(\d{10})', row['Recipients']):
+                        uniqueUsers.add(recipient[0])
+
+        duration = time.time() - start
+
+
+        summary.append({
+            "file": os.path.basename(root_path),
+            "time_taken_secs": round(duration, 2),
+            "messages": sum(counts.values()),
+            "breakdown": dict(counts)
+        })
+
+
 # Command Line Interface (CLI)
 def main(argv: List[str]) -> int:
     """
@@ -141,6 +257,7 @@ def main(argv: List[str]) -> int:
     # Variables to store data collected during processing..
     activities = []
     uniqueUsers = set()
+    uniqueIPs = set()
     integrityId = token_urlsafe(16)
     summary = []
     meta = {
@@ -157,7 +274,7 @@ def main(argv: List[str]) -> int:
         if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
             uniqueUsers.add(pathlib.Path(dir_path).name)
 
-        exclude_dir = ['call', 'VZMOBILE',]
+        exclude_dir = ['call', 'VZMOBILE', 'attachments']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
         # do not provide any intel.
         for root_folder, subfolders, filenames in os.walk(os.path.normpath(dir_path), topdown=True):
@@ -175,6 +292,14 @@ def main(argv: List[str]) -> int:
                 # Process all the files in the sms or mms out directory
                 if 'out' == pathlib.Path(root_folder).parent.name:
                     get_messages_text_docs(root_folder, meta, summary, activities)
+            # Capture new format using CSV files instead of TXT files
+            if 'messages' in root_folder:
+                get_messages_csv_docs(root_folder, meta, summary, activities, uniqueUsers,)
+
+            if filenames:
+                for file in filenames:
+                    if file.endswith('.xlsx'):
+                        print(f'Found an Excel file at {root_folder}')
 
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
