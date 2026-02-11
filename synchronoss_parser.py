@@ -84,7 +84,7 @@ def render_message(dir_path, message, meta: dict,):
     }
 
 
-def get_messages(root_path, meta: dict, summary: list, activities: list):
+def get_messages_text_docs(root_path, meta: dict, summary: list, activities: list):
     """
     :param root_path: The sms/mms `in` and sms/mms `out` folder path passed from the main function.
     :param meta: The metadata passed from the main function.
@@ -171,10 +171,10 @@ def main(argv: List[str]) -> int:
             if 'sms' in root_folder or 'mms' in root_folder:
                 # Process all the files in the sms or mms in directory.
                 if 'in' == pathlib.Path(root_folder).name:
-                    get_messages(root_folder, meta, summary, activities)
+                    get_messages_text_docs(root_folder, meta, summary, activities)
                 # Process all the files in the sms or mms out directory
                 if 'out' == pathlib.Path(root_folder).parent.name:
-                    get_messages(root_folder, meta, summary, activities)
+                    get_messages_text_docs(root_folder, meta, summary, activities)
 
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
