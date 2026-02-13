@@ -389,9 +389,6 @@ def main(argv: List[str]) -> int:
             # Exclude directories based on exclude_dir list above.
             subfolders[:] = [d for d in subfolders if d not in exclude_dir]
 
-            # If the user added the optionally provided, and external Excel and Text file, process them here
-            #if re.findall(r'(\d{10}\.xlsx)', ):
-
             # The 'sms' and 'mms' folders each contain two folders. One named 'in' the other named 'out'. The 'in' and
             # 'out' folders can contain multiple folders. Each of these folders is named according to the date
             # YYYY-MM-DD messages were received or sent. Each of these dated folders can contain multiple text files
