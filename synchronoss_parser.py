@@ -188,14 +188,14 @@ def get_messages_text_docs(root_path, meta: dict, summary: list, activities: lis
                     "event": "message",
                 })
 
-        duration = time.time() - start
+    duration = time.time() - start
 
-        summary.append({
-            "file": os.path.basename(root_path),
-            "time_taken_secs": round(duration, 2),
-            "messages": sum(counts.values()),
-            "breakdown": dict(counts)
-        })
+    summary.append({
+        "file": os.path.basename(root_path),
+        "time_taken_secs": round(duration, 2),
+        "messages": sum(counts.values()),
+        "breakdown": dict(counts)
+    })
 
 
 def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activities: list,):
@@ -213,12 +213,13 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
     # Grabs all the files stored in the message folder passed in from the main function
     filenames = glob.glob(f'{message_folder_path}/**/*.csv', recursive=True)
 
-    # Process a batch of 25 files
-    for batch in batched(filenames, 50):
+    # Process a batch of 200 files
+    for batch in batched(filenames, 200):
         for filename in batch:
             with open(filename, 'r', encoding='utf-8') as fd:
                 dict_reader = csv.DictReader(fd)
                 for row in dict_reader:
+                    # For summary count
                     counts[row['Type']] += 1
                     print(json.dumps({"type": "message", "data": render_message_csv(row, meta)},
                                      ensure_ascii=False), flush=True)
@@ -246,15 +247,14 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
                     # elif recipient := re.findall(r'\+?1?(\d{10})', row['Recipients']):
                     #     uniqueUsers.add(recipient[0])
 
-        duration = time.time() - start
+    duration = time.time() - start
 
-
-        summary.append({
-            "file": os.path.basename(message_folder_path),
-            "time_taken_secs": round(duration, 2),
-            "messages": sum(counts.values()),
-            "breakdown": dict(counts)
-        })
+    summary.append({
+        "file": os.path.basename(message_folder_path),
+        "time_taken_secs": round(duration, 2),
+        "messages": sum(counts.values()),
+        "breakdown": dict(counts)
+    })
 
 
 def clean_up_phone_number(phone_number: str) -> str:
@@ -278,7 +278,7 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
     :param uniquePeople: passed in from main function
     """
 
-    # Check to see if the user added the external contacts.txt file to this return folder
+    # Check to see if the user added the external contacts.txt file to the Synchronoss return folder.
     contents = os.listdir(dir_path)
 
     for file_name in contents:
@@ -286,12 +286,12 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
             try:
                 # Read and parse JSON from text file
                 with open(os.path.join(dir_path, file_name), 'rb',) as fd:
-                    records = ijson.items(fd, 'contacts.contact.item')
-                    for record in records:
-                        if record.get('firstname'):
-                            full_name = record.get('firstname').replace(' ', '')
-                        if record.get('lastname'):
-                            full_name = full_name + ' ' + record.get('lastname').replace(' ', '')
+
+                    for record in ijson.items(fd, 'contacts.contact.item'):
+                        if firstname := record.get('firstname'):
+                            full_name = firstname.replace(' ', '')
+                        if lastname := record.get('lastname'):
+                            full_name = full_name + ' ' + lastname.replace(' ', '')
                         uniquePeople.add(full_name)
 
                         if record.get('tel'):
@@ -301,7 +301,7 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
                                 if len(telephone) == 10:
                                     uniqueUsers.add(telephone)
 
-            # Grab any exception thrown by pandas. If the Excel document cannot be read do not crash the plugin.
+            # Grab any exception thrown by pandas. If the contacts document cannot be read do not crash the plugin.
             # Just report the error, whatever it may be.
             except Exception as e:
                 logging.error(e)
@@ -325,8 +325,8 @@ def get_xlsx_data(dir_path, meta: dict, activities: list, uniqueIPs: set, unique
             try:
                 df = pd.read_excel(os.path.join(dir_path, file_name), engine='openpyxl', engine_kwargs={'read_only': True})
                 data_dict = df.to_dict(orient='records')
-                # Process 50 data entries before passing the data to Paradigm
-                for batch in batched(data_dict, 50):
+                # Process 100 data entries before passing the data to Paradigm
+                for batch in batched(data_dict, 200):
                     for row in batch:
                         uniqueDevices.add(row['clientidentifier'])
                         # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
@@ -396,16 +396,7 @@ def main(argv: List[str]) -> int:
             get_xlsx_data(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
             get_contacts_data(dir_path, uniqueUsers, uniquePeople)
 
-            # User and People data are only provided by the get functions above.
-            print(json.dumps({"type": "plugin_summary", "data": {
-                "company": "Synchronoss",
-                "dirId": meta['dirId'],
-                "uniqueUsers": list(uniqueUsers),
-                "uniqueUserCount": len(uniqueUsers),
-                "uniquePeople": list(uniquePeople),
-                "uniquePeopleCount": len(uniquePeople),
-            }}, ensure_ascii=False), flush=True)
-        time.sleep(5)
+
         exclude_dir = ['call', 'VZMOBILE', 'attachments']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
         # do not provide any intel.
@@ -428,18 +419,22 @@ def main(argv: List[str]) -> int:
             if 'messages' in root_folder:
                 get_messages_csv_docs(root_folder, meta, summary, activities,)
 
-        # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
             "dirId": meta['dirId'],
             "summary": summary,
+            "uniqueUsers": list(uniqueUsers),
+            "uniqueUserCount": len(uniqueUsers),
+            "uniquePeople": list(uniquePeople),
+            "uniquePeopleCount": len(uniquePeople),
             "uniqueDeviceIds": list(uniqueDevices),
             "uniqueDeviceCount": len(uniqueDevices),
             "uniqueIPs": list(uniqueIPs),
             "uniqueIPCount": len(uniqueIPs),
-            "activities": activities,
-            "activityCount": len(activities),
+            # "activities": activities,
+            # "activityCount": len(activities),
         }}, ensure_ascii=False), flush=True)
+
     return 0
 
 
