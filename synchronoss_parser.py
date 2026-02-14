@@ -6,6 +6,7 @@ from typing import List
 import pandas as pd
 import pathlib
 import logging
+import ijson
 import time
 import json
 import glob
@@ -165,8 +166,8 @@ def get_messages_text_docs(root_path, meta: dict, summary: list, activities: lis
     # Grabs all the files stored in the sms/mms `in` or `out` folder passed in from the main function
     filenames = glob.glob(f'{root_path}/**/*.txt', recursive=True)
 
-    # Process 100 hundred files before passing the data to Paradigm
-    for batch in batched(filenames, 100):
+    # Process 50 hundred files before passing the data to Paradigm
+    for batch in batched(filenames, 50):
         for filename in batch:
             # Skip empty files
             if os.path.getsize(filename) == 0:
@@ -197,13 +198,12 @@ def get_messages_text_docs(root_path, meta: dict, summary: list, activities: lis
         })
 
 
-def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activities: list, uniqueUsers: set):
+def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activities: list,):
     """
         :param message_folder_path:
         :param meta: The metadata passed from the main function.
         :param summary:
         :param activities:
-        :param uniqueUsers:
         """
 
     # For summary.append below
@@ -213,7 +213,7 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
     # Grabs all the files stored in the message folder passed in from the main function
     filenames = glob.glob(f'{message_folder_path}/**/*.csv', recursive=True)
 
-    # Process 100 hundred files before passing the data to Paradigm
+    # Process a batch of 25 files
     for batch in batched(filenames, 50):
         for filename in batch:
             with open(filename, 'r', encoding='utf-8') as fd:
@@ -235,10 +235,16 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
                     # row['Sender'] and row['Recipients'] are each telephone numbers, often in different formats. Some
                     # use +, or +1, or may just have 4 digits only. Capture just the 10-digit number ignoring any
                     # 4-digit number, or values starting with `+` or `+1'
-                    if sender := re.findall(r'\+?1?(\d{10})', row['Sender']):
-                        uniqueUsers.add(sender[0])
-                    elif recipient := re.findall(r'\+?1?(\d{10})', row['Recipients']):
-                        uniqueUsers.add(recipient[0])
+
+                    # These telephone numbers are recorded in messages already, so I am commenting out the ability to
+                    # store them as uniqueUsers. With small returns this can generate as many as 3,000 uniqueUsers
+                    # alone. If you re-activate this collection make sure to add a uniqueUsers set object to as a
+                    # function parameter.
+
+                    # if sender := re.findall(r'\+?1?(\d{10})', row['Sender']):
+                    #     uniqueUsers.add(sender[0])
+                    # elif recipient := re.findall(r'\+?1?(\d{10})', row['Recipients']):
+                    #     uniqueUsers.add(recipient[0])
 
         duration = time.time() - start
 
@@ -265,87 +271,94 @@ def clean_up_phone_number(phone_number: str) -> str:
     return phone_num.strip()
 
 
-def get_xlsx_and_contact_data(dir_path, meta: dict, uniqueUsers: set, activities: list, uniqueIPs: set,
-                              uniqueDevices: set, uniquePeople: set):
+def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
+    """
+    :param dir_path: passed in from main function
+    :param uniqueUsers:  passed in from main function
+    :param uniquePeople: passed in from main function
+    """
+
+    # Check to see if the user added the external contacts.txt file to this return folder
+    contents = os.listdir(dir_path)
+
+    for file_name in contents:
+        if file_name.endswith('-contacts.txt'):
+            try:
+                # Read and parse JSON from text file
+                with open(os.path.join(dir_path, file_name), 'rb',) as fd:
+                    records = ijson.items(fd, 'contacts.contact.item')
+                    for record in records:
+                        if record.get('firstname'):
+                            full_name = record.get('firstname').replace(' ', '')
+                        if record.get('lastname'):
+                            full_name = full_name + ' ' + record.get('lastname').replace(' ', '')
+                        uniquePeople.add(full_name)
+
+                        if record.get('tel'):
+                            for tel in record['tel']:
+                                telephone = clean_up_phone_number(tel.get('number'))
+                                #re.findall(r'\d{7}', telephone) or re.findall(r'\d{10}', telephone)
+                                if len(telephone) == 10:
+                                    uniqueUsers.add(telephone)
+
+            # Grab any exception thrown by pandas. If the Excel document cannot be read do not crash the plugin.
+            # Just report the error, whatever it may be.
+            except Exception as e:
+                logging.error(e)
+
+
+def get_xlsx_data(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
     """
     :param dir_path: Passed in from main
     :param meta:
-    :param uniqueUsers:
     :param activities:
     :param uniqueIPs:
     :param uniqueDevices:
-    :param uniquePeople:
     :return:
     """
 
     # Check to see if the user added the external xlsx and contacts.txt file to this return folder
     contents = os.listdir(dir_path)
+
     for file_name in contents:
-        if file_name.endswith('-contacts.txt'):
+        if file_name.endswith('.xlsx'):
             try:
-                # Read and parse JSON from text file
-                with open(os.path.join(dir_path, file_name), 'r', encoding='utf-8') as fd:
-                    data = pd.read_json(fd, orient='records')
-                    # Deeply nested JSON file. Skip to JSON objects containing the data being collected
-                    for list_dict in data['contacts']['contact']:
-                        # Trying to normalize what users might add in first and last name fields.
-                        if list_dict.get('firstname'):
-                            fullname = list_dict.get('firstname').replace(' ', '')
-                        if list_dict.get('lastname'):
-                            fullname = fullname + ' ' + list_dict.get('lastname').replace(' ', '')
-                        # You have a name
-                        uniquePeople.add(fullname.strip())
-
-                        if list_dict.get('tel'):
-                            for dict_item in list_dict['tel']:
-                                # User can enter a phone number in multiple variations. clean_up_phone_number() attempts
-                                # to clean the telephone number and return it in the following format: xxxyyyzzzz
-                                if phone_number := clean_up_phone_number(dict_item.get('number')):
-                                    if len(phone_number) > 7:
-                                        uniqueUsers.add(phone_number)
-
-            # Grab any exception thrown by pandas. If the Excel document cannot be read do not crash the plugin.
-            # Just report the error, whatever it may be.
-            except Exception as e:
-                logging.error(e)
-
-        elif file_name.endswith('.xlsx'):
-            try:
-                df = pd.read_excel(os.path.join(dir_path, file_name))
+                df = pd.read_excel(os.path.join(dir_path, file_name), engine='openpyxl', engine_kwargs={'read_only': True})
                 data_dict = df.to_dict(orient='records')
-                for row in data_dict:
-                    uniqueDevices.add(row['clientidentifier'])
-                    # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
-                    # comma. The second IP is a Hosting IP.
-                    ipaddress = row['remoteipaddress'].split(',')
-                    if len(ipaddress) > 1:
-                        for ip in ipaddress:
-                            uniqueIPs.add(ip.strip())
-                    else:  # There is only one IP Address.
-                        uniqueIPs.add(row['remoteipaddress'] if len(ipaddress) == 1 else ipaddress[0])
+                # Process 50 data entries before passing the data to Paradigm
+                for batch in batched(data_dict, 50):
+                    for row in batch:
+                        uniqueDevices.add(row['clientidentifier'])
+                        # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
+                        # comma. The second IP is a Hosting IP.
+                        ipaddress = row['remoteipaddress'].split(',')
+                        if len(ipaddress) > 1:
+                            for ip in ipaddress:
+                                uniqueIPs.add(ip.strip())
+                        else:  # There is only one IP Address.
+                            uniqueIPs.add(row['remoteipaddress'] if len(ipaddress) == 1 else ipaddress[0])
 
-                    # tag activity
-                    activities.append({
-                        "type": "data",
-                        "dirId": meta['dirId'],
-                        "platform": "synchronoss",
-                        "date": to_iso_utc(row['server_ts']),
-                        "caseId": None,  # the date the messages were sent or received
-                        "event": "content uploaded",
-                    })
+                        # tag activity
+                        activities.append({
+                            "type": "data",
+                            "dirId": meta['dirId'],
+                            "platform": "synchronoss",
+                            "date": to_iso_utc(row['server_ts']),
+                            "caseId": None,  # the date the messages were sent or received
+                            "event": "content uploaded",
+                        })
+                    # Clean these up.
+                    # Synchronoss systems replace missing IPs with a dash character. The client identifier associated with
+                    # this missing IP is listed as 'CI' if the hash value for a transmitted file is present in the
+                    # 'querystring'. If a hash value is not present Synchronoss places a dash in the client identifier.
+                    uniqueIPs.discard('-')
+                    uniqueDevices.discard('CI')
+                    uniqueDevices.discard('-')
+
             # Grab any exception thrown by pandas. If the Excel document cannot be read do not crash the plugin.
             # Just report the error, whatever it may be.
             except Exception as e:
                 logging.error(e)
-            # Clean these up.
-            # Synchronoss systems replace missing IPs with a dash character. The client identifier associated with
-            # this missing IP is listed as 'CI' if the hash value for a transmitted file is present in the
-            # 'querystring'. If a hash value is not present Synchronoss places a dash in the client identifier.
-            uniqueIPs.discard('-')
-            uniqueDevices.discard('CI')
-            uniqueDevices.discard('-')
-            uniqueUsers.discard(' ')
-            uniquePeople.discard(' ')
 
 
 # Command Line Interface (CLI)
@@ -379,9 +392,20 @@ def main(argv: List[str]) -> int:
         if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
             uniqueUsers.add(pathlib.Path(dir_path).name)
             # Process the additional xlsx and contacts text file if the user added them to the return folder. Otherwise,
-            # this function will do nothing.
-            get_xlsx_and_contact_data(dir_path, meta, uniqueUsers, activities, uniqueIPs, uniqueDevices, uniquePeople)
+            # these function will do nothing.
+            get_xlsx_data(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
+            get_contacts_data(dir_path, uniqueUsers, uniquePeople)
 
+            # User and People data are only provided by the get functions above.
+            print(json.dumps({"type": "plugin_summary", "data": {
+                "company": "Synchronoss",
+                "dirId": meta['dirId'],
+                "uniqueUsers": list(uniqueUsers),
+                "uniqueUserCount": len(uniqueUsers),
+                "uniquePeople": list(uniquePeople),
+                "uniquePeopleCount": len(uniquePeople),
+            }}, ensure_ascii=False), flush=True)
+        time.sleep(5)
         exclude_dir = ['call', 'VZMOBILE', 'attachments']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
         # do not provide any intel.
@@ -402,18 +426,13 @@ def main(argv: List[str]) -> int:
                     get_messages_text_docs(root_folder, meta, summary, activities)
             # Capture new format using CSV files instead of TXT files
             if 'messages' in root_folder:
-                get_messages_csv_docs(root_folder, meta, summary, activities, uniqueUsers,)
-
+                get_messages_csv_docs(root_folder, meta, summary, activities,)
 
         # Print final Summary
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
             "dirId": meta['dirId'],
             "summary": summary,
-            "uniqueUsers": list(uniqueUsers),
-            "uniqueUserCount": len(uniqueUsers),
-            "uniquePeople": list(uniquePeople),
-            "uniquePeopleCount": len(uniquePeople),
             "uniqueDeviceIds": list(uniqueDevices),
             "uniqueDeviceCount": len(uniqueDevices),
             "uniqueIPs": list(uniqueIPs),
