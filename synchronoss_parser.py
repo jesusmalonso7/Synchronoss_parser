@@ -151,18 +151,13 @@ def render_message_csv(row, meta: dict,):
     }
 
 
-def get_messages_text_docs(root_path, meta: dict, summary: list, activities: list):
+def get_messages_text_docs(root_path, meta: dict, activities: list):
     """
     :param root_path: The sms/mms `in` and sms/mms `out` folder path passed from the main function.
     :param meta: The metadata passed from the main function.
-    :param summary:
     :param activities:
     :return:
     """
-
-    # For summary.append below
-    counts = Counter()
-    start = time.time()
 
     # Grabs all the files stored in the sms/mms `in` or `out` folder passed in from the main function
     filenames = glob.glob(f'{root_path}/**/*.txt', recursive=True)
@@ -170,11 +165,11 @@ def get_messages_text_docs(root_path, meta: dict, summary: list, activities: lis
     # Process 50 hundred files before passing the data to Paradigm
     for batch in batched(filenames, 50):
         for filename in batch:
+            # The messages are stored in folders that are named after the date the messages were sent or received
+            date = pathlib.Path(filename).parent.name
             # Skip empty files
             if os.path.getsize(filename) == 0:
                 continue
-            # Count how many 'mms' or 'sms' messages have been received or sent
-            counts[pathlib.Path(root_path).parent.name] += 1
             with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
                 msg = fd.read()
                 print(json.dumps({"type": "message", "data":
@@ -184,19 +179,10 @@ def get_messages_text_docs(root_path, meta: dict, summary: list, activities: lis
                     "type": "data",
                     "dirId": meta['dirId'],
                     "platform": "synchronoss",
-                    "date": pathlib.Path(root_path).name,  # The messages are stored in folders that are named after
-                    "caseId": None,                        # the date the messages were sent or received
+                    "date": date,
+                    "caseId": None,
                     "event": "message",
                 })
-
-    duration = time.time() - start
-
-    summary.append({
-        "file": os.path.basename(root_path),
-        "time_taken_secs": round(duration, 2),
-        "messages": sum(counts.values()),
-        "breakdown": dict(counts)
-    })
 
 
 def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activities: list,):
@@ -413,10 +399,10 @@ def main(argv: List[str]) -> int:
             if 'sms' in root_folder or 'mms' in root_folder:
                 # Process all the files in the sms or mms in directory.
                 if 'in' == pathlib.Path(root_folder).name:
-                    get_messages_text_docs(root_folder, meta, summary, activities)
+                    get_messages_text_docs(root_folder, meta, activities)
                 # Process all the files in the sms or mms out directory
                 if 'out' == pathlib.Path(root_folder).parent.name:
-                    get_messages_text_docs(root_folder, meta, summary, activities)
+                    get_messages_text_docs(root_folder, meta, activities)
             # Capture new format using CSV files instead of TXT files
             if 'messages' in root_folder:
                 get_messages_csv_docs(root_folder, meta, summary, activities,)
@@ -433,8 +419,8 @@ def main(argv: List[str]) -> int:
             "uniqueDeviceCount": len(uniqueDevices),
             "uniqueIPs": list(uniqueIPs),
             "uniqueIPCount": len(uniqueIPs),
-            # "activities": activities,
-            # "activityCount": len(activities),
+            "activities": activities,
+            "activityCount": len(activities),
         }}, ensure_ascii=False), flush=True)
 
     return 0
