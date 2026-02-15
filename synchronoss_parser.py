@@ -126,7 +126,7 @@ def render_message(dir_path, message, meta: dict,):
 
 def render_message_csv(row, meta: dict,):
     """
-    Returns a paradigm formatted message for Synchronoss returns provided in CSV format stored in the messages folder.
+    Returns a paradigm formatted message for Synchronoss returns provided in CSV format stored in the messages-folder.
     :param row: current row being processed in file
     :param meta: metadata passed in from the main function
     :return:
