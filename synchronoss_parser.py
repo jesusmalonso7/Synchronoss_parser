@@ -102,7 +102,8 @@ def parse_cmd_line(argv: list) -> str:
 
 def render_message(dir_path, message, meta: dict,):
     """
-    Returns a paradigm formatted message
+    Returns a paradigm formatted message. This render_message was written for Synchronoss returns provided in text
+    format stored in sms and mms folders.
     :param dir_path:
     :param message:
     :param meta: metadata passed in from the main function
@@ -125,7 +126,7 @@ def render_message(dir_path, message, meta: dict,):
 
 def render_message_csv(row, meta: dict,):
     """
-    Returns a paradigm formatted message
+    Returns a paradigm formatted message for Synchronoss returns provided in CSV format stored in the messages folder.
     :param row: current row being processed in file
     :param meta: metadata passed in from the main function
     :return:
@@ -213,8 +214,8 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
     # Grabs all the files stored in the message folder passed in from the main function
     filenames = glob.glob(f'{message_folder_path}/**/*.csv', recursive=True)
 
-    # Process a batch of 200 files
-    for batch in batched(filenames, 200):
+    # Process a batch of 50 files
+    for batch in batched(filenames, 50):
         for filename in batch:
             with open(filename, 'r', encoding='utf-8') as fd:
                 dict_reader = csv.DictReader(fd)
@@ -300,7 +301,8 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
                                 #re.findall(r'\d{7}', telephone) or re.findall(r'\d{10}', telephone)
                                 if len(telephone) == 10:
                                     uniqueUsers.add(telephone)
-
+                # File found and processed. Exit the for loop.
+                break
             # Grab any exception thrown by pandas. If the contacts document cannot be read do not crash the plugin.
             # Just report the error, whatever it may be.
             except Exception as e:
@@ -325,8 +327,8 @@ def get_xlsx_data(dir_path, meta: dict, activities: list, uniqueIPs: set, unique
             try:
                 df = pd.read_excel(os.path.join(dir_path, file_name), engine='openpyxl', engine_kwargs={'read_only': True})
                 data_dict = df.to_dict(orient='records')
-                # Process 100 data entries before passing the data to Paradigm
-                for batch in batched(data_dict, 200):
+                # Process 50 data_dict items at a time
+                for batch in batched(data_dict, 50):
                     for row in batch:
                         uniqueDevices.add(row['clientidentifier'])
                         # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
