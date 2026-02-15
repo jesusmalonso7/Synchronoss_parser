@@ -30,7 +30,7 @@ def show_info():
         "description": "Processes Synchronoss text files for sms/mms text messages and provide a summary.",
         "author": "Pathfinder Labs",
         "created": "2026-02-05",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "dataType": "data",
         "usage": "python script.py run <directory>\npython script.py info",
         "notes": "Handles TXT files",
