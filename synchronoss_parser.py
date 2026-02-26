@@ -266,10 +266,10 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
     """
 
     # Check to see if the user added the external contacts.txt file to the Synchronoss return folder.
-    contents = os.listdir(dir_path)
+    contents = glob.glob(f'{dir_path}/**/*.txt', recursive=True)
 
     for file_name in contents:
-        if file_name.endswith('-contacts.txt'):
+        if "contacts" in file_name:
             try:
                 # Read and parse JSON from text file
                 with open(os.path.join(dir_path, file_name), 'rb',) as fd:
@@ -295,7 +295,53 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
                 logging.error(e)
 
 
-def get_xlsx_data(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
+def get_access_log_csv(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
+    """
+    :param dir_path: Passed in from main
+    :param meta:
+    :param activities:
+    :param uniqueIPs:
+    :param uniqueDevices:
+    :return:
+    """
+
+    # Check to see if the user added the external csv device access log file to this return folder
+    contents = glob.glob(f'{dir_path}/*.csv', recursive=True)
+
+    for filename in contents:
+        with open(filename, 'r', encoding='utf-8') as fd:
+            dict_reader = csv.DictReader(fd)
+            for batch in batched(dict_reader, 50):
+               for row in batch:
+                   uniqueDevices.add(row['clientidentifier'])
+                   # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
+                   # comma. The second IP is a Hosting IP.
+                   ipaddress = row['remoteipaddress'].split(',')
+                   if len(ipaddress) > 1:
+                       for ip in ipaddress:
+                           uniqueIPs.add(ip.strip())
+                   else:  # There is only one IP Address.
+                       uniqueIPs.add(row['remoteipaddress'] if len(ipaddress) == 1 else ipaddress[0])
+
+                   # tag activity
+                   activities.append({
+                       "type": "data",
+                       "dirId": meta['dirId'],
+                       "platform": "synchronoss",
+                       "date": to_iso_utc(row['server_ts']),
+                       "caseId": None,  # the date the messages were sent or received
+                       "event": "content uploaded",
+                   })
+                   # Clean these up.
+                   # Synchronoss systems replace missing IPs with a dash character. The client identifier associated with
+                   # this missing IP is listed as 'CI' if the hash value for a transmitted file is present in the
+                   # 'querystring'. If a hash value is not present Synchronoss places a dash in the client identifier.
+               uniqueIPs.discard('-')
+               uniqueDevices.discard('CI')
+               uniqueDevices.discard('-')
+
+
+def get_access_log_xlsx(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
     """
     :param dir_path: Passed in from main
     :param meta:
@@ -379,11 +425,11 @@ def main(argv: List[str]) -> int:
         # also be processed.
         if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
             uniqueUsers.add(pathlib.Path(dir_path).name)
-            # Process the additional xlsx and contacts text file if the user added them to the return folder. Otherwise,
+            # Process the additional xlsx, csv, or contacts file if the user added them to the return folder. Otherwise,
             # these function will do nothing.
-            get_xlsx_data(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
+            get_access_log_xlsx(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
             get_contacts_data(dir_path, uniqueUsers, uniquePeople)
-
+            get_access_log_csv(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
 
         exclude_dir = ['call', 'VZMOBILE', 'attachments']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
