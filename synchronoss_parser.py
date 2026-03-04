@@ -27,14 +27,14 @@ logging.basicConfig(
 def show_info():
     print(json.dumps({
         "name": "Synchronoss Parser",
-        "description": "Processes Synchronoss text files for sms/mms text messages and provide a summary.",
+        "description": "Processes Synchronoss text, xlsx, or csv files and provide a summary",
         "author": "Pathfinder Labs",
         "created": "2026-02-05",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "dataType": "data",
         "usage": "python script.py run <directory>\npython script.py info",
-        "notes": "Handles TXT files",
-        "fileTypes": ["txt"]
+        "notes": "Handles TXT, CSV and XLSX files",
+        "fileTypes": ["txt, csv, xlsx"]
     }))
 
 
@@ -100,10 +100,10 @@ def parse_cmd_line(argv: list) -> str:
         sys.exit(2)
 
 
-def render_message(dir_path, message, meta: dict,):
+def render_text_messages(dir_path, message, meta: dict,):
     """
-    Returns a paradigm formatted message. This render_message was written for Synchronoss returns provided in text
-    format stored in sms and mms folders.
+    Returns a paradigm formatted message. This render_text_messages was written for Synchronoss returns provided in text
+    format. These files are stored in the sms and mms folders of the return.
     :param dir_path:
     :param message:
     :param meta: metadata passed in from the main function
@@ -124,12 +124,11 @@ def render_message(dir_path, message, meta: dict,):
     }
 
 
-def render_message_csv(row, meta: dict,):
+def render_csv_messages(row, meta: dict,):
     """
-    Returns a paradigm formatted message for Synchronoss returns provided in CSV format stored in the messages-folder.
     :param row: current row being processed in file
     :param meta: metadata passed in from the main function
-    :return:
+    :return: a paradigm formatted message for Synchronoss returns provided in CSV format stored in the messages-folder.
     """
     return {
         "platform": "synchronoss",
@@ -151,7 +150,7 @@ def render_message_csv(row, meta: dict,):
     }
 
 
-def get_messages_text_docs(root_path, meta: dict, activities: list):
+def get_text_messages(root_path, meta: dict, activities: list):
     """
     :param root_path: The sms/mms `in` and sms/mms `out` folder path passed from the main function.
     :param meta: The metadata passed from the main function.
@@ -162,7 +161,7 @@ def get_messages_text_docs(root_path, meta: dict, activities: list):
     # Grabs all the files stored in the sms/mms `in` or `out` folder passed in from the main function
     filenames = glob.glob(f'{root_path}/**/*.txt', recursive=True)
 
-    # Process 50 hundred files before passing the data to Paradigm
+    # Process 50 files before passing the data to Paradigm
     for batch in batched(filenames, 50):
         for filename in batch:
             # The messages are stored in folders that are named after the date the messages were sent or received
@@ -173,7 +172,7 @@ def get_messages_text_docs(root_path, meta: dict, activities: list):
             with open(os.path.join(root_path, filename), 'r', encoding='utf-8') as fd:
                 msg = fd.read()
                 print(json.dumps({"type": "message", "data":
-                    render_message(root_path, msg.replace("\n", " "), meta)}, ensure_ascii=False), flush=True)
+                    render_text_messages(root_path, msg.replace("\n", " "), meta)}, ensure_ascii=False), flush=True)
                 # tag activity
                 activities.append({
                     "type": "data",
@@ -185,7 +184,7 @@ def get_messages_text_docs(root_path, meta: dict, activities: list):
                 })
 
 
-def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activities: list,):
+def get_csv_messages(message_folder_path, meta: dict, summary: list, activities: list,):
     """
         :param message_folder_path:
         :param meta: The metadata passed from the main function.
@@ -208,7 +207,7 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
                 for row in dict_reader:
                     # For summary count
                     counts[row['Type']] += 1
-                    print(json.dumps({"type": "message", "data": render_message_csv(row, meta)},
+                    print(json.dumps({"type": "message", "data": render_csv_messages(row, meta)},
                                      ensure_ascii=False), flush=True)
                     # tag activity
                     activities.append({
@@ -219,20 +218,6 @@ def get_messages_csv_docs(message_folder_path, meta: dict, summary: list, activi
                         "caseId": None,  # the date the messages were sent or received
                         "event": "message",
                     })
-
-                    # row['Sender'] and row['Recipients'] are each telephone numbers, often in different formats. Some
-                    # use +, or +1, or may just have 4 digits only. Capture just the 10-digit number ignoring any
-                    # 4-digit number, or values starting with `+` or `+1'
-
-                    # These telephone numbers are recorded in messages already, so I am commenting out the ability to
-                    # store them as uniqueUsers. With small returns this can generate as many as 3,000 uniqueUsers
-                    # alone. If you re-activate this collection make sure to add a uniqueUsers set object to as a
-                    # function parameter.
-
-                    # if sender := re.findall(r'\+?1?(\d{10})', row['Sender']):
-                    #     uniqueUsers.add(sender[0])
-                    # elif recipient := re.findall(r'\+?1?(\d{10})', row['Recipients']):
-                    #     uniqueUsers.add(recipient[0])
 
     duration = time.time() - start
 
@@ -263,6 +248,7 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
     :param dir_path: passed in from main function
     :param uniqueUsers:  passed in from main function
     :param uniquePeople: passed in from main function
+    :descrip: This code processes a txt document in csv format without a header
     """
 
     # Check to see if the user added the external contacts.txt file to the Synchronoss return folder.
@@ -295,7 +281,7 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
                 logging.error(e)
 
 
-def get_access_log_csv(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
+def get_csv_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
     """
     :param dir_path: Passed in from main
     :param meta:
@@ -303,6 +289,7 @@ def get_access_log_csv(dir_path, meta: dict, activities: list, uniqueIPs: set, u
     :param uniqueIPs:
     :param uniqueDevices:
     :return:
+    :description: This function process a CSV file
     """
 
     # Check to see if the user added the external csv device access log file to this return folder
@@ -341,14 +328,14 @@ def get_access_log_csv(dir_path, meta: dict, activities: list, uniqueIPs: set, u
                uniqueDevices.discard('-')
 
 
-def get_access_log_xlsx(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
+def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
     """
     :param dir_path: Passed in from main
     :param meta:
     :param activities:
     :param uniqueIPs:
     :param uniqueDevices:
-    :return:
+    :return: Processes a xlsx file
     """
 
     # Check to see if the user added the external xlsx and contacts.txt file to this return folder
@@ -425,11 +412,12 @@ def main(argv: List[str]) -> int:
         # also be processed.
         if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
             uniqueUsers.add(pathlib.Path(dir_path).name)
-            # Process the additional xlsx, csv, or contacts file if the user added them to the return folder. Otherwise,
-            # these function will do nothing.
-            get_access_log_xlsx(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
+            # Process the additional xlsx, csv, or text contacts file if the user added them to the return folder.
+            # Otherwise, these function will do nothing. The get_xlsx_access_log and get_csv_access_log are laid out
+            # exactly the same. Only difference is the format in which they were provided.
+            get_xlsx_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
             get_contacts_data(dir_path, uniqueUsers, uniquePeople)
-            get_access_log_csv(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
+            get_csv_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
 
         exclude_dir = ['call', 'VZMOBILE', 'attachments']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
@@ -445,13 +433,13 @@ def main(argv: List[str]) -> int:
             if 'sms' in root_folder or 'mms' in root_folder:
                 # Process all the files in the sms or mms in directory.
                 if 'in' == pathlib.Path(root_folder).name:
-                    get_messages_text_docs(root_folder, meta, activities)
+                    get_text_messages(root_folder, meta, activities)
                 # Process all the files in the sms or mms out directory
                 if 'out' == pathlib.Path(root_folder).parent.name:
-                    get_messages_text_docs(root_folder, meta, activities)
+                    get_text_messages(root_folder, meta, activities)
             # Capture new format using CSV files instead of TXT files
             if 'messages' in root_folder:
-                get_messages_csv_docs(root_folder, meta, summary, activities,)
+                get_csv_messages(root_folder, meta, summary, activities,)
 
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
