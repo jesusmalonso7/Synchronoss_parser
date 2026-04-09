@@ -15,7 +15,9 @@ import sys
 import os
 import re
 
-sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # Python 3.7+
+if isinstance(sys.stdout, io.TextIOWrapper):
+    sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # Python 3.7+
+    
 # Setup logger
 logging.basicConfig(
     level=logging.INFO,
