@@ -13,6 +13,7 @@ import glob
 import csv
 import sys
 import os
+import io
 import re
 
 if isinstance(sys.stdout, io.TextIOWrapper):
@@ -387,10 +388,10 @@ def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, 
 # Command Line Interface (CLI)
 def main(argv: List[str]) -> int:
     """
-    :param argv: A list of command line arguments argv[0] = python script, argv[1] = [run|info], argv[2] = filepath
+    :param argv: A list of command line arguments argv[0] = Python script, argv[1] = [run|info], argv[2] = filepath
     :return:
     """
-    # Variables to store data collected during processing..
+    # Variables to store data collected during processing.
     activities = []
     uniqueUsers = set()
     uniquePeople = set()
