@@ -30,12 +30,14 @@ logging.basicConfig(
 def show_info():
     print(json.dumps({
         "name": "Synchronoss Parser",
-        "description": "Processes Synchronoss text, xlsx, or csv files and provide a summary",
+        "description": "Processes Synchronoss text, xlsx, or csv files and provide a summary. "
+                       "To begin processing please select the unzipped Synchronoss return",
         "author": "Pathfinder Labs",
         "created": "2026-02-05",
-        "version": "1.2.0",
+        "last_updated": "2026-08-13",
+        "version": "1.2.1",
         "dataType": "data",
-        "usage": "python script.py run <directory>\npython script.py info",
+        "usage": "synchronoss_parser.py run <directory>\nsynchronoss_parser.py info",
         "notes": "Handles TXT, CSV and XLSX files",
         "fileTypes": ["txt, csv, xlsx"]
     }))
