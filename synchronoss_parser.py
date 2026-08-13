@@ -4,6 +4,7 @@ from collections import Counter
 from itertools import batched
 from typing import List
 import pandas as pd
+import phonenumbers
 import pathlib
 import logging
 import ijson
@@ -103,6 +104,19 @@ def parse_cmd_line(argv: list) -> str:
         print("Unknown command. Use 'info' or 'run'.", file=sys.stderr)
         logging.info("Unknown command. Use 'info' or 'run'.")
         sys.exit(2)
+
+
+def get_phone_number(lineOfText: str) -> list:
+    """
+    :param lineOfText: A text string that may or may not contain the phone number
+    :return: Return a list of all the phone numbers
+    """
+    # The default region is set to 'US'. A default is required. If the phone
+    # number cannot be identified for the default region and international check
+    # will be completed.
+    numbers = phonenumbers.PhoneNumberMatcher(lineOfText, 'US')
+    return [phonenumbers.format_number(match.number, phonenumbers.PhoneNumberFormat.E164) for match in numbers]
+
 
 
 def render_text_messages(dir_path, message, meta: dict,):
