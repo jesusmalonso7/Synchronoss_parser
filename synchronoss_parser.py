@@ -174,7 +174,6 @@ def get_text_messages(root_path, meta: dict, activities: list):
     :param root_path: The sms/mms `in` and sms/mms `out` folder path passed from the main function.
     :param meta: The metadata passed from the main function.
     :param activities:
-    :return:
     """
 
     # Grabs all the files stored in the sms/mms `in` or `out` folder passed in from the main function
@@ -203,12 +202,13 @@ def get_text_messages(root_path, meta: dict, activities: list):
                 })
 
 
-def get_csv_messages(message_folder_path, meta: dict, summary: list, activities: list,):
+def get_csv_messages(message_folder_path, meta: dict, summary: list, activities: list, uniqueUsers: set):
     """
         :param message_folder_path:
         :param meta: The metadata passed from the main function.
         :param summary:
         :param activities:
+        :param uniqueUsers:
         """
 
     # For summary.append below
@@ -226,6 +226,14 @@ def get_csv_messages(message_folder_path, meta: dict, summary: list, activities:
                 for row in dict_reader:
                     # For summary count
                     counts[row['Type']] += 1
+
+                    phones = get_phone_number(row['Body'])
+                    # Search message for phone numbers. If a phone number or, numbers are located
+                    # in the message send those phone numbers to uniqueUsers.
+                    if phones:
+                        for phone in phones:
+                            uniqueUsers.add(f'{row["Sender"]} phone#: {phone}')
+
                     print(json.dumps({"type": "message", "data": render_csv_messages(row, meta)},
                                      ensure_ascii=False), flush=True)
                     # tag activity
@@ -291,7 +299,7 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
                                 telephone = clean_up_phone_number(tel.get('number'))
                                 #re.findall(r'\d{7}', telephone) or re.findall(r'\d{10}', telephone)
                                 if len(telephone) == 10:
-                                    uniqueUsers.add(telephone)
+                                    uniqueUsers.add(f'{full_name} Phone#: {telephone}')
                 # File found and processed. Exit the for loop.
                 break
             # Grab any exception thrown by pandas. If the contacts document cannot be read do not crash the plugin.
@@ -300,7 +308,7 @@ def get_contacts_data(dir_path, uniqueUsers: set, uniquePeople: set):
                 logging.error(e)
 
 
-def get_csv_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
+def get_csv_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set, uniqueUsers: set):
     """
     :param dir_path: Passed in from main
     :param meta:
@@ -320,6 +328,7 @@ def get_csv_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, u
             for batch in batched(dict_reader, 50):
                for row in batch:
                    uniqueDevices.add(row['clientidentifier'])
+                   uniqueUsers.add(f'Device: {row["clientidentifier"]}')
                    # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
                    # comma. The second IP is a Hosting IP.
                    ipaddress = row['remoteipaddress'].split(',')
@@ -347,13 +356,14 @@ def get_csv_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, u
                uniqueDevices.discard('-')
 
 
-def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set,):
+def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, uniqueDevices: set, uniqueUsers: set):
     """
     :param dir_path: Passed in from main
     :param meta:
     :param activities:
     :param uniqueIPs:
     :param uniqueDevices:
+    :param uniqueUsers:
     :return: Processes a xlsx file
     """
 
@@ -369,6 +379,7 @@ def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, 
                 for batch in batched(data_dict, 50):
                     for row in batch:
                         uniqueDevices.add(row['clientidentifier'])
+                        uniqueUsers.add(f'Device: {row["clientidentifier"]}')
                         # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
                         # comma. The second IP is a Hosting IP.
                         ipaddress = row['remoteipaddress'].split(',')
@@ -430,15 +441,15 @@ def main(argv: List[str]) -> int:
         # are not provided in the return folder. If the user adds these two files to the return folder these files will
         # also be processed.
         if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
-            uniqueUsers.add(pathlib.Path(dir_path).name)
+            uniqueUsers.add(f'Acct phone#: {pathlib.Path(dir_path).name}')
             # Process the additional xlsx, csv, or text contacts file if the user added them to the return folder.
             # Otherwise, these function will do nothing. The get_xlsx_access_log and get_csv_access_log are laid out
             # exactly the same. Only difference is the format in which they were provided.
-            get_xlsx_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
+            get_xlsx_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices, uniqueUsers)
             get_contacts_data(dir_path, uniqueUsers, uniquePeople)
-            get_csv_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices,)
+            get_csv_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices, uniqueUsers)
 
-        exclude_dir = ['call', 'VZMOBILE', 'attachments']
+        exclude_dir = ['call', 'VZMOBILE']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
         # do not provide any intel.
         for root_folder, subfolders, filenames in os.walk(os.path.normpath(dir_path), topdown=True):
@@ -458,7 +469,7 @@ def main(argv: List[str]) -> int:
                     get_text_messages(root_folder, meta, activities)
             # Capture new format using CSV files instead of TXT files
             if 'messages' in root_folder:
-                get_csv_messages(root_folder, meta, summary, activities,)
+                get_csv_messages(root_folder, meta, summary, activities, uniqueUsers)
 
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
