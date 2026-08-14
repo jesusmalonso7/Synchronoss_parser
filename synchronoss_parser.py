@@ -54,8 +54,9 @@ FORMATS_Z = [
 FORMATS_z = [
     "%a %b %d %H:%M:%S %z %Y",  # Thu Apr 04 14:39:09 +0000 2024
     "%b %d %Y %H:%M:%S %z",     # Apr 04 2024 00:19:33 +0000
+    "%d/%b/%Y:%H:%M:%S %z",     # 03/Oct/2024:08:58:31 +0000
     "%Y-%m-%d %H:%M:%S %z",     # 2025-12-27 01:16:16 UTC
-    "%Y-%m-%dT%H:%M:%S.%f%z",     # 2025-12-27T01:16:16.000Z
+    "%Y-%m-%dT%H:%M:%S.%f%z",   # 2025-12-27T01:16:16.000Z
 ]
 
 
@@ -227,12 +228,15 @@ def get_csv_messages(message_folder_path, meta: dict, summary: list, activities:
                     # For summary count
                     counts[row['Type']] += 1
 
-                    phones = get_phone_number(row['Body'])
                     # Search message for phone numbers. If a phone number or, numbers are located
                     # in the message send those phone numbers to uniqueUsers.
+                    phones = get_phone_number(row['Body'])
                     if phones:
                         for phone in phones:
-                            uniqueUsers.add(f'{row["Sender"]} phone#: {phone}')
+                            if row['Sender']:
+                                uniqueUsers.add(f'Texted from: {row["Sender"].strip()}, msg texted: {phone.strip()}')
+                            else:
+                                uniqueUsers.add(f'Texted from: "Not Provided", msg texted: {phone.strip()} ')
 
                     print(json.dumps({"type": "message", "data": render_csv_messages(row, meta)},
                                      ensure_ascii=False), flush=True)
@@ -379,6 +383,7 @@ def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, 
                 for batch in batched(data_dict, 50):
                     for row in batch:
                         uniqueDevices.add(row['clientidentifier'])
+                        # Make the device visible to Paradigm users
                         uniqueUsers.add(f'Device: {row["clientidentifier"]}')
                         # For some entries Synchronoss is adding two IPs in this row. The IPs are separated by a
                         # comma. The second IP is a Hosting IP.
@@ -394,7 +399,8 @@ def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, 
                             "type": "data",
                             "dirId": meta['dirId'],
                             "platform": "synchronoss",
-                            "date": to_iso_utc(row['server_ts']),
+                            "date": to_iso_utc(row['logtimestamp'].replace('[', '').replace(']', ''))
+                                    if 'logtimestamp' in row else row['server_ts'],
                             "caseId": None,  # the date the messages were sent or received
                             "event": "content uploaded",
                         })
@@ -405,7 +411,7 @@ def get_xlsx_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, 
                     uniqueIPs.discard('-')
                     uniqueDevices.discard('CI')
                     uniqueDevices.discard('-')
-
+                    uniqueUsers.discard('Device: -')
             # Grab any exception thrown by pandas. If the Excel document cannot be read do not crash the plugin.
             # Just report the error, whatever it may be.
             except Exception as e:
