@@ -35,8 +35,8 @@ def show_info():
                        "To begin processing please select the unzipped Synchronoss return",
         "author": "Pathfinder Labs",
         "created": "2026-02-05",
-        "last_updated": "2026-08-13",
-        "version": "1.2.1",
+        "last_updated": "2026-08-16",
+        "version": "1.2.2",
         "dataType": "data",
         "usage": "synchronoss_parser.py run <directory>\nsynchronoss_parser.py info",
         "notes": "Handles TXT, CSV and XLSX files",
@@ -160,7 +160,7 @@ def get_vcard_info(vcf_file, uniqueUsers: set, uniquePeople: set, uniqueDevices:
                 build_vCard_str += f'{k}: {v}, '
             uniqueUsers.add(build_vCard_str)
             if "Device" in vCard_data.keys():
-                uniqueDevices.append(vCard_data["Device"])
+                uniqueDevices.add(vCard_data["Device"])
             if "Name" in vCard_data.keys():
                 uniquePeople.add(vCard_data["Name"] if vCard_data["Name"] else "")
 
@@ -368,6 +368,7 @@ def get_csv_access_log(dir_path, meta: dict, activities: list, uniqueIPs: set, u
     :param activities:
     :param uniqueIPs:
     :param uniqueDevices:
+    :param uniqueUsers:
     :return:
     :description: This function process a CSV file
     """
@@ -523,8 +524,11 @@ def main(argv: List[str]) -> int:
                 if 'out' == pathlib.Path(root_folder).parent.name:
                     get_text_messages(root_folder, meta, activities)
             # Capture new format using CSV files instead of TXT files
-            # if 'messages' in root_folder:
-            #     get_csv_messages(root_folder, meta, summary, activities, uniqueUsers)
+            if 'messages' in root_folder:
+                get_csv_messages(root_folder, meta, summary, activities, uniqueUsers)
+
+            # Review the files found in each root_folder looking for vCard (Contact Cards) files.
+            # Currently, the get_vcard_info() is basic. Need to work on a more robust version.
             for filename in filenames:
                 file_path = os.path.join(root_folder, filename)
                 if file_path.endswith('.vcf') or file_path.endswith('.x-vCard'):
