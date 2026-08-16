@@ -119,6 +119,55 @@ def get_phone_number(lineOfText: str) -> list:
     return [phonenumbers.format_number(match.number, phonenumbers.PhoneNumberFormat.E164) for match in numbers]
 
 
+def get_vcard_info(vcf_file, uniqueUsers: set, uniquePeople: set, uniqueDevices: set) -> dict:
+    """
+    :param vcf_file: This is actually a .vcf is actually a vCard which contains contact information
+    :param uniqueUsers: List of unique users
+    :param uniquePeople: List of unique people
+    :param uniqueDevices: List of unique devices
+    """
+    vCard_data = {}
+    # The .vcf card will be processed as a text file. If you double-click on the actual .vcf file it will open it
+    # as a contact card in Windows. Problem is that Windows does not show all the data. When the .vcf card is open
+    # as a text file additional information, another email address, was found.
+    with open(vcf_file, 'r') as f:
+        for line in f.readlines():
+            if line.startswith("CUSTOM.EMAIL:"):
+                vCard_data["Email"] = line.split(":")[1].strip()
+            # FN is for full name. User sometimes put the email address in this field. The `elif` test to see if `@`
+            # is part of the FN. If it is the entry may be an email address.
+            elif line.startswith("FN:"):
+                if '@' not in line:
+                    vCard_data["Contact Name"] = line.split(":")[1].strip()
+                # Some users place an email address where the name should go. Capture this as a
+                # second email.
+                elif '@' in line:
+                    vCard_data['Additional Email'] = line.split(":")[1].strip()
+            elif line.startswith('TEL;type=pref: '):
+                vCard_data["Preferred Phone#"] = line.split(":")[1].strip()
+            elif line.startswith('TEL;CELL:'):
+                vCard_data["Cellphone#"] = line.split(":")[1].strip()
+            elif line.startswith('PRODID:'):
+                vCard_data["Device ID"] = line.split(":")[1].replace('-','').replace('//', ' ').strip()
+            elif line.startswith('URL;type=pref:'):
+                vCard_data["URL"] = line.split("URL;type=pref:")[1].replace('\\', '').strip()
+
+        # Make sure the dictionary has at least one valid value before sending the data to Paradigm
+        if any(vCard_data.values()):
+            # Build string to display contents of the contact card to user via Paradigms Identities tab.
+            build_vCard_str = '(vCard Contact) '
+            for k, v in vCard_data.items():
+                build_vCard_str += f'{k}: {v}, '
+            uniqueUsers.add(build_vCard_str)
+            if "Device" in vCard_data.keys():
+                uniqueDevices.append(vCard_data["Device"])
+            if "Name" in vCard_data.keys():
+                uniquePeople.add(vCard_data["Name"] if vCard_data["Name"] else "")
+
+        uniquePeople.discard(None)
+        uniquePeople.discard('')
+
+        return vCard_data
 
 def render_text_messages(dir_path, message, meta: dict,):
     """
@@ -447,13 +496,13 @@ def main(argv: List[str]) -> int:
         # are not provided in the return folder. If the user adds these two files to the return folder these files will
         # also be processed.
         if re.match(r"^\d{10}", pathlib.Path(dir_path).name):
-            uniqueUsers.add(f'Acct phone#: {pathlib.Path(dir_path).name}')
+            uniqueUsers.add(f'Acct phone/number: {pathlib.Path(dir_path).name}')
             # Process the additional xlsx, csv, or text contacts file if the user added them to the return folder.
             # Otherwise, these function will do nothing. The get_xlsx_access_log and get_csv_access_log are laid out
             # exactly the same. Only difference is the format in which they were provided.
             get_xlsx_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices, uniqueUsers)
-            get_contacts_data(dir_path, uniqueUsers, uniquePeople)
             get_csv_access_log(dir_path, meta, activities, uniqueIPs, uniqueDevices, uniqueUsers)
+            get_contacts_data(dir_path, uniqueUsers, uniquePeople)
 
         exclude_dir = ['call', 'VZMOBILE']
         # Process all the files and folders found in dir_path except those listed in exclude_dir. These directories
@@ -474,8 +523,12 @@ def main(argv: List[str]) -> int:
                 if 'out' == pathlib.Path(root_folder).parent.name:
                     get_text_messages(root_folder, meta, activities)
             # Capture new format using CSV files instead of TXT files
-            if 'messages' in root_folder:
-                get_csv_messages(root_folder, meta, summary, activities, uniqueUsers)
+            # if 'messages' in root_folder:
+            #     get_csv_messages(root_folder, meta, summary, activities, uniqueUsers)
+            for filename in filenames:
+                file_path = os.path.join(root_folder, filename)
+                if file_path.endswith('.vcf') or file_path.endswith('.x-vCard'):
+                    print(f'vCard: {get_vcard_info(file_path, uniqueUsers, uniquePeople, uniqueDevices)}')
 
         print(json.dumps({"type": "plugin_summary", "data": {
             "company": "Synchronoss",
