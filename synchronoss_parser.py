@@ -283,9 +283,11 @@ def get_csv_messages(message_folder_path, meta: dict, summary: list, activities:
                     if phones:
                         for phone in phones:
                             if row['Sender']:
-                                uniqueUsers.add(f'Texted from: {row["Sender"].strip()}, msg texted: {phone.strip()}')
+                                uniqueUsers.add(f'Date: {row['Date']} Sender: {row["Sender"].strip()}, '
+                                                f'phone number in msg: {phone.strip()}')
                             else:
-                                uniqueUsers.add(f'Texted from: "Not Provided", msg texted: {phone.strip()} ')
+                                uniqueUsers.add(f'Date: {row['Date']} Sender: "None", phone number in msg: '
+                                                f'{phone.strip()} ')
 
                     print(json.dumps({"type": "message", "data": render_csv_messages(row, meta)},
                                      ensure_ascii=False), flush=True)
